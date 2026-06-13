@@ -4,3 +4,4 @@ python-docx
 python-multipart
 pandas
 openpyxl
+pydantic
