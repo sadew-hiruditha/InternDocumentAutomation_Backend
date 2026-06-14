@@ -18,89 +18,135 @@ app.add_middleware(
 )
 
 # Manual Input සඳහා ආකෘතිය
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+NDA_TEMPLATE_PATH = os.path.join(BASE_DIR, "NDA_template.docx")
+OFFER_LETTER_TEMPLATE_PATH = os.path.join(BASE_DIR, "Offer_Letter_template.docx")
 
 
 class InternData(BaseModel):
-    name: str
-    nic: str
-    address: str
+    name_with_initials: str
+    full_name: str
+    home_address: str
+    welcome_name: str
     start_date: str
     end_date: str
+    nic: str
+    department: str
+    telephone_number: str
+    supervisor_name: str
+    supervisor_designation: str
+    line_address: str
 
-# දිනවල අගින් එන 00:00:00 කපා ඉවත් කිරීමේ function එක
 
-
-def clean_date(date_val):
+def format_standard_date(date_val):
     if pd.isna(date_val) or not str(date_val).strip():
         return ""
-    return str(date_val).split(" ")[0]
+    try:
+        dt = pd.to_datetime(date_val)
+        return f"{dt.day} {dt.strftime('%B')} {dt.year}"
+    except Exception:
+        return str(date_val).strip().split(" ")[0]
 
-# දත්ත එක සමාන කිරීම (Excel වලින් ආවත්, Form එකෙන් ආවත්)
+
+def format_ordinal_date(date_val):
+    if pd.isna(date_val) or not str(date_val).strip():
+        return ""
+    try:
+        dt = pd.to_datetime(date_val)
+        day = dt.day
+        if 11 <= day <= 13:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+        day_str = f"{day}{suffix}"
+        month_str = dt.strftime("%B")
+        year_str = dt.strftime("%Y")
+        return f"{day_str} day of {month_str} {year_str}"
+    except Exception:
+        return str(date_val).strip()
 
 
 def normalize_data(raw_data):
+    def get_val(keys):
+        for k in keys:
+            if k in raw_data:
+                val = raw_data[k]
+                return clean_string_val(val)
+            for rk in raw_data.keys():
+                rk_clean = str(rk).strip().lower().replace("_", "").replace(" ", "").replace("-", "")
+                k_clean = str(k).strip().lower().replace("_", "").replace(" ", "").replace("-", "")
+                if rk_clean == k_clean:
+                    val = raw_data[rk]
+                    return clean_string_val(val)
+        return ""
+
+    def clean_string_val(val):
+        if pd.isna(val):
+            return ""
+        if isinstance(val, float) and val.is_integer():
+            return str(int(val))
+        return str(val).strip()
+
     return {
-        "name": str(raw_data.get('Name', raw_data.get('name', ''))).strip(),
-        "nic": str(raw_data.get('NIC', raw_data.get('nic', ''))).strip(),
-        "address": str(raw_data.get('Address', raw_data.get('address', ''))).strip(),
-        "start_date": clean_date(raw_data.get('Start_Date', raw_data.get('start_date', ''))),
-        "end_date": clean_date(raw_data.get('End_Date', raw_data.get('end_date', '')))
+        "name_with_initials": get_val(["Name with initials", "Name_with_initials", "name_with_initials", "NameWithInitials", "name"]),
+        "full_name": get_val(["Full Name", "Full_Name", "full_name", "FullName"]),
+        "home_address": get_val(["Home Adress", "Home Address", "home_address", "Home_Adress", "address"]),
+        "welcome_name": get_val(["welcome name", "welcome_name", "welcomeName"]),
+        "start_date": get_val(["Start date", "Start_Date", "start_date", "StartDate"]),
+        "end_date": get_val(["End date", "End_Date", "end_date", "EndDate"]),
+        "nic": get_val(["NIC", "nic", "NIC Number", "nic_number"]),
+        "department": get_val(["Department", "department"]),
+        "telephone_number": get_val(["Telephone number", "Telephone_number", "telephone_number", "TelephoneNumber", "tel"]),
+        "supervisor_name": get_val(["Supervisor name", "Supervisor_name", "supervisor_name", "SupervisorName"]),
+        "supervisor_designation": get_val(["supervisor designation", "supervisor_designation", "supervisorDesignation", "Supervisor_Designation"]),
+        "line_address": get_val(["line adress", "line address", "line_address", "Line_Adress", "Line_Address"])
     }
 
 
-def generate_ol_bytes(data):
-    doc = Document()
-    doc.add_paragraph(f"{data['start_date']}\n")
-    doc.add_paragraph(f"{data['name']}\n{data['address']}\n")
-
-    first_name = data['name'].split()[0] if data['name'] else 'Intern'
-    doc.add_paragraph(f"Dear {first_name},\n")
-
-    doc.add_paragraph(
-        f"We are pleased to offer you a period of internship in the above company from {data['start_date']} to {data['end_date']}. "
-        "We expect you to make use of this period to familiarize yourself with the corporate world by participating in our day to day operations along with our employees."
-    )
-    doc.add_paragraph(
-        "You should liaise with the undersigned in relation to all matters during this period.\n")
-    doc.add_paragraph(
-        "Yours faithfully,\nCeylon Cold Store Plc\n\n\nWasantha mudalige\nHead of The Human Resource Operation\n")
-
-    doc.add_paragraph("_" * 50 + "\n")
-    doc.add_paragraph(
-        f"I am pleased to accept this offer of 06 months internship commencing {data['start_date']} on the basis given above.\n")
-    doc.add_paragraph(
-        "Signature: _______________________      Date: _______________________\n")
-    doc.add_paragraph(f"Name: {data['name']}      NIC number: {data['nic']}")
-
+def fill_document(template_path, data):
+    doc = Document(template_path)
+    
+    placeholders = {
+        "NAME_WITH_INITIALS": data["name_with_initials"],
+        "FULL_NAME": data["full_name"],
+        "HOME_ADDRESS": data["home_address"],
+        "WELCOME_NAME": data["welcome_name"],
+        "START_DATE": format_standard_date(data["start_date"]),
+        "START_DATE_ORDINAL": format_ordinal_date(data["start_date"]),
+        "END_DATE": format_standard_date(data["end_date"]),
+        "NIC": data["nic"],
+        "DEPARTMENT": data["department"],
+        "TELEPHONE": data["telephone_number"],
+        "SUPERVISOR_NAME": data["supervisor_name"],
+        "SUPERVISOR_DESIGNATION": data["supervisor_designation"],
+        "LINE_ADDRESS": data["line_address"]
+    }
+    
+    for p in doc.paragraphs:
+        for run in p.runs:
+            if run.text:
+                for k, v in placeholders.items():
+                    tag = f"{{{{{k}}}}}"
+                    if tag in run.text:
+                        run.text = run.text.replace(tag, str(v))
+                        
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    for run in p.runs:
+                        if run.text:
+                            for k, v in placeholders.items():
+                                tag = f"{{{{{k}}}}}"
+                                if tag in run.text:
+                                    run.text = run.text.replace(tag, str(v))
+                                    
     file_stream = io.BytesIO()
     doc.save(file_stream)
     file_stream.seek(0)
     return file_stream.getvalue()
-
-
-def generate_nda_bytes(data):
-    doc = Document()
-    doc.add_heading("NON-DISCLOSURE AGREEMENT", level=1)
-    doc.add_paragraph(f"\nThis Agreement Made On This {data['start_date']}\n")
-    doc.add_paragraph(
-        f"Between Mr/Ms. {data['name']} (Holder Of National Identity Card Bearing The Number {data['nic']}) "
-        f"Of {data['address']} (Hereinafter Referred To As The 'First Party')\n"
-    )
-    doc.add_paragraph(
-        "And Whereas The First Part Is Desires Of Outsourced Intern In The Ceylon Cold Stores PLC, "
-        "In Human Resource Department Of The Second Party And The Second Party Has Agreed To Such Outsourced Contract."
-    )
-    doc.add_paragraph(
-        "\n\n_______________________\nSignature of the First Party\n")
-    doc.add_paragraph(
-        "\nAuthorized signature of the second party (Ceylon cold store Plc.,)\n\nWasantha mudalige\nHead of the human resource operation")
-
-    file_stream = io.BytesIO()
-    doc.save(file_stream)
-    file_stream.seek(0)
-    return file_stream.getvalue()
-
-# ZIP ෆයිල් එක හදන පොදු function එක (Folders 2ක වෙනම දානවා)
 
 
 def create_zip_archive(data_list):
@@ -108,38 +154,33 @@ def create_zip_archive(data_list):
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
         for raw_data in data_list:
             data = normalize_data(raw_data)
-            if not data['name'] or data['name'] == 'nan':
+            if not data['full_name'] or data['full_name'] == 'nan':
                 continue
 
-            safe_name = data['name'].replace(" ", "_")
-            ol_file = generate_ol_bytes(data)
-            nda_file = generate_nda_bytes(data)
+            safe_name = data['full_name'].replace(" ", "_")
+            ol_file = fill_document(OFFER_LETTER_TEMPLATE_PATH, data)
+            nda_file = fill_document(NDA_TEMPLATE_PATH, data)
 
-            # වෙනම Folders වලට දාන කොටස
-            zip_file.writestr(
-                f"Offer_Letters/{safe_name}_Offer_Letter.docx", ol_file)
+            zip_file.writestr(f"Offer_Letters/{safe_name}_Offer_Letter.docx", ol_file)
             zip_file.writestr(f"NDAs/{safe_name}_NDA.docx", nda_file)
 
     zip_buffer.seek(0)
     return zip_buffer
-
-# 1. Manual Form Submit එකට
 
 
 @app.post("/generate")
 async def generate_single(data: InternData):
     try:
         zip_buffer = create_zip_archive([data.dict()])
+        safe_name = data.full_name.replace(' ', '_')
         return StreamingResponse(
             zip_buffer,
             media_type="application/x-zip-compressed",
             headers={
-                "Content-Disposition": f"attachment; filename=Intern_Docs_{data.name.replace(' ', '_')}.zip"}
+                "Content-Disposition": f"attachment; filename=Intern_Docs_{safe_name}.zip"}
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# 2. Bulk Excel Upload එකට
 
 
 @app.post("/generate-bulk")
@@ -151,10 +192,7 @@ async def generate_bulk(file: UploadFile = File(...)):
     try:
         contents = await file.read()
         df = pd.read_excel(io.BytesIO(contents))
-
-        # DataFrame එක dictionary list එකක් බවට පත් කිරීම
         data_list = df.to_dict(orient='records')
-
         zip_buffer = create_zip_archive(data_list)
         return StreamingResponse(
             zip_buffer,
@@ -165,6 +203,6 @@ async def generate_bulk(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-        if __name__ == "__main__":
-            import uvicorn
-            uvicorn.run(app, host="0.0.0.0", port=8080)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)
